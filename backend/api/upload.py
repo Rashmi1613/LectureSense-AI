@@ -1,76 +1,85 @@
-from fastapi import APIRouter, UploadFile, File
+from fastapi import APIRouter, UploadFile, File, Form
 from pathlib import Path
 import shutil
-from typing import List
+from typing import List, Optional
+
+from database import create_lecture, add_file
 
 router = APIRouter(
     prefix="/upload",
     tags=["Upload"]
 )
 
-# -----------------------------
-# Upload Lecture Slides
-# -----------------------------
-@router.post("/slides")
-async def upload_slides(
-    files: List[UploadFile] = File(...)
+
+@router.post("/")
+async def upload_lecture(
+    lecture_name: str = Form(...),
+    slides: Optional[List[UploadFile]] = File(None),
+    pdf: Optional[UploadFile] = File(None),
+    audio: Optional[UploadFile] = File(None),
 ):
-    upload_dir = Path("uploads/slides")
-    upload_dir.mkdir(parents=True, exist_ok=True)
+    if not slides and pdf is None and audio is None:
+        return {
+            "message": "Please upload at least one file."
+        }
 
-    uploaded_files = []
+    lecture_id = create_lecture(lecture_name)
 
-    for file in files:
-        destination = upload_dir / file.filename
+    slides_dir = Path("uploads/slides")
+    pdfs_dir = Path("uploads/pdfs")
+    audio_dir = Path("uploads/audio")
 
-        with destination.open("wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+    slides_dir.mkdir(parents=True, exist_ok=True)
+    pdfs_dir.mkdir(parents=True, exist_ok=True)
+    audio_dir.mkdir(parents=True, exist_ok=True)
 
-        uploaded_files.append(file.filename)
+    # -----------------------------
+    # Save Slides (if provided)
+    # -----------------------------
+    if slides:
+        for slide in slides:
+            destination = slides_dir / slide.filename
+            with destination.open("wb") as buffer:
+                shutil.copyfileobj(slide.file, buffer)
+
+            add_file(
+                lecture_id=lecture_id,
+                file_type="SLIDE",
+                file_name=slide.filename,
+                file_path=str(destination)
+            )
+
+    # -----------------------------
+    # Save PDF (if provided)
+    # -----------------------------
+    if pdf:
+        pdf_destination = pdfs_dir / pdf.filename
+        with pdf_destination.open("wb") as buffer:
+            shutil.copyfileobj(pdf.file, buffer)
+
+        add_file(
+            lecture_id=lecture_id,
+            file_type="PDF",
+            file_name=pdf.filename,
+            file_path=str(pdf_destination)
+        )
+
+    # -----------------------------
+    # Save Audio (if provided)
+    # -----------------------------
+    if audio:
+        audio_destination = audio_dir / audio.filename
+        with audio_destination.open("wb") as buffer:
+            shutil.copyfileobj(audio.file, buffer)
+
+        add_file(
+            lecture_id=lecture_id,
+            file_type="AUDIO",
+            file_name=audio.filename,
+            file_path=str(audio_destination)
+        )
 
     return {
-        "message": "Slides uploaded successfully",
-        "files": uploaded_files
-    }
-
-
-# -----------------------------
-# Upload PDF
-# -----------------------------
-@router.post("/pdf")
-async def upload_pdf(
-    file: UploadFile = File(...)
-):
-    upload_dir = Path("uploads/pdfs")
-    upload_dir.mkdir(parents=True, exist_ok=True)
-
-    destination = upload_dir / file.filename
-
-    with destination.open("wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    return {
-        "message": "PDF uploaded successfully",
-        "file": file.filename
-    }
-
-
-# -----------------------------
-# Upload Audio
-# -----------------------------
-@router.post("/audio")
-async def upload_audio(
-    file: UploadFile = File(...)
-):
-    upload_dir = Path("uploads/audio")
-    upload_dir.mkdir(parents=True, exist_ok=True)
-
-    destination = upload_dir / file.filename
-
-    with destination.open("wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    return {
-        "message": "Audio uploaded successfully",
-        "file": file.filename
+        "message": "Lecture uploaded successfully",
+        "lecture_id": lecture_id
     }
